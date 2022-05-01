@@ -14,27 +14,27 @@
 #include <stdlib.h>
 #include <limits.h>
 #include <stdbool.h>
+#include <string.h>
  
 int N;
 
-
 // Find the vertex with minimum key value, 
 // from the set of vertices not yet included in MST
-int minKey(int key[], bool mstSet[])
+int minKey(int* key, bool* mstSet)
 {
     // Initialize min value
     int min = INT_MAX, min_index;
- 
-    for (int v = 0; v < N; v++)
+    for (int v = 0; v < N; v++) {
         if (mstSet[v] == false && key[v] < min)
             min = key[v], min_index = v;
- 
+    }
+
     return min_index;
 }
  
 
 // Print constructed MST stored in parent[]
-int printMST(int parent[], int graph[N][N])
+int printMST(int* parent, int** graph)
 {
     printf("Edge \tWeight\n");
     for (int i = 1; i < N; i++)
@@ -44,11 +44,11 @@ int printMST(int parent[], int graph[N][N])
 
 // Construct and print MST for a graph represented 
 // using adjacency matrix representation
-void primMST(int graph[N][N])
+void primMST(int** graph)
 {
-    int parent[N];  // Array to store constructed MST
-    int key[N];     // Key values used to pick minimum weight edge in cut
-    bool mstSet[N]; // To represent set of vertices included in MST
+    int* parent = calloc(N, sizeof(int));        // Array to store constructed MST
+    int* key = calloc(N-1, sizeof(int));         // Key values used to pick minimum weight edge in cut
+    bool* mstSet = calloc(N, sizeof(bool));      // To represent set of vertices included in MST
  
     // Initialize all keys as INFINITE
     for (int i = 0; i < N; i++)
@@ -85,18 +85,33 @@ void primMST(int graph[N][N])
  
 int main(int argc, char *argv[])
 {
+
+  FILE* file = fopen(argv[1], "r");
   char* fn = argv[1];
-  N = atoi(argv[2]);
-  FILE* file = fopen(fn, "r");
-  int graph[N][N];
-  int MST[N];
+  int** graph;
+  int* MST;
   int i, j, v;
+  
+  char* grep = "grep \"\" -c ";
+  char* bashCommand = malloc(strlen(fn) + strlen(grep));
+  strcpy(bashCommand, grep);
+  strcat(bashCommand, fn);
 
 
   if (file == NULL)
     printf("Could not open this file. Choose again proper filename..\n");
   else {
     
+    FILE* res = popen(bashCommand, "r");
+    if (res)
+        fscanf(res, "%d", (int*)(&N));
+
+    graph = calloc(N, sizeof(int *));
+    for(i=0; i< N; i++) graph[i] = calloc(N, sizeof(int));
+    
+    MST = calloc(N, sizeof(int));
+
+
     // read adjency matrix data from file to 2D matrix (graph)
     for (i = 0; i < N; i++) {
       for (j = 0; j < N; j++) {
