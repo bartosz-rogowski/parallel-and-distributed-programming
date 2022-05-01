@@ -4,10 +4,11 @@
  * The program is for adjacency matrix representation of the graph.
  * ------------------------------------------------------------------------------------
  * Compile: gcc main.c -o main 
- * Run:     ./main filename N
- *          where: -filename - name of the file which contains input adjency matrix
- *                 -N        - size of adjency matrix (2D NxN) 
- *          for example date: ./main data01.txt 5
+ * Run:     mpicc -n proc ./main filename
+ *          where: 
+ *                  -proc - number of processes
+ *                  -filename - name of the file which contains input adjency matrix
+ *          for example date: ./main data01.txt
  * ------------------------------------------------------------------------------------
  */
 #include <stdio.h>
@@ -15,6 +16,8 @@
 #include <limits.h>
 #include <stdbool.h>
 #include <string.h>
+#include <mpi.h>
+#define MASTER 0        // Master node number
  
 int N;
 
@@ -82,60 +85,90 @@ void primMST(int** graph)
     printMST(parent, graph);
 }
 
+////////////////////////////////////////////////////////////////////////////////////////////////////
  
 int main(int argc, char *argv[])
 {
+    FILE* file = fopen(argv[1], "r");
+    char* fileName = argv[1];
+    int** graph;        // adjency matrix of graph
+    int i, j, v;
 
-  FILE* file = fopen(argv[1], "r");
-  char* fn = argv[1];
-  int** graph;
-  int* MST;
-  int i, j, v;
-  
-  char* grep = "grep \"\" -c ";
-  char* bashCommand = malloc(strlen(fn) + strlen(grep));
-  strcpy(bashCommand, grep);
-  strcat(bashCommand, fn);
+    int rank;           // rank of current processor
+    int procNum;        // number of processors
+    int* chunkSizes;    // specifying the number of elements to send to each processor 
+    int* displ;         // specifies the displacement (starting index) needed in MPI_Scatterv
+    int* chunk;         // chunk of matrix (columns) that belongs to each processor
 
+    MPI_Comm world world = MPI_COMM_WORLD;
 
-  if (file == NULL)
-    printf("Could not open this file. Choose again proper filename..\n");
-  else {
+    MPI_Init(&argc, &argv);
+    MPI_Comm_rank(world, &rank);
+    MPI_Comm_size(world, &procNum);
     
-    FILE* res = popen(bashCommand, "r");
-    if (res)
-        fscanf(res, "%d", (int*)(&N));
+    chunkSizes = (int*)malloc(sizeof(int) * procNum);
+    displs = (int*)malloc(sizeof(int) * procNum);
 
-    graph = calloc(N, sizeof(int *));
-    for(i=0; i< N; i++) graph[i] = calloc(N, sizeof(int));
-    
-    MST = calloc(N, sizeof(int));
+    chunkSize = N / procNum;                // chunk size for each processor
+    int remains = procNum - (N % procNum);  // if number of vertices is not a multiply of number of processors
+    chunkSizes[0] = chunkSize;
+    displs[0] = 0;
 
-
-    // read adjency matrix data from file to 2D matrix (graph)
-    for (i = 0; i < N; i++) {
-      for (j = 0; j < N; j++) {
-          fscanf(file, "%d", &v);
-          graph[i][j] = v;
-      }
+    for (i = 1; i < procNum; i++) {
+        chunkSizes[i] = chunkSize;
+        if (i < remains) 
+            ++chunkSizes[i];
+        displs[i] = displs[i-1] + chunkSizes[i-1];
     }
 
-    // print input read data
-    printf("Input data (adjency matrix): \n");
-    printf("------------\n");
-    for (i = 0; i < N; i++) {
-        for (j = 0; j < N; j++) {
-            printf("%d ", graph[i][j]);
+
+    // master processor read adjency matrix data from file to 2D matrix (graph)
+    if (rank == MASTER) {
+        printf("rank is %d and number of processors is %d\n", rank, procNum);
+
+        // Preparing command for counting number of lines
+        char* grep = "grep \"\" -c ";
+        char* bashCommand = malloc(strlen(fileName) + strlen(grep));
+        strcpy(bashCommand, grep);
+        strcat(bashCommand, fileName);
+
+        // Checking if file exists
+        if (file == NULL)
+            printf("Could not open this file. Choose again proper filename..\n");
+        else {
+
+        // Reading number of lines from Linux command
+        FILE* res = popen(bashCommand, "r");
+        if (res)
+            fscanf(res, "%d", (int*)(&N));
+
+        free(bashCommand);
+
+        graph = calloc(N, sizeof(int *));
+        for(i=0; i< N; i++)    
+            graph[i] = calloc(N, sizeof(int));
+
+
+        for (i = 0; i < N; i++) {
+            for (j = 0; j < N; j++) {
+                fscanf(file, "%d", &v);
+                graph[i][j] = v;
+            }
         }
-        printf("\n");
-    }
-    printf("------------\n\n");
+        fclose(file);
+    } // end of master node tasks
+
 
     // constructed MST and print results
     primMST(graph);
-  }
+    }
 
-  fclose(file);
- 
-  return 0;
+    // dealocating memory
+    for(i = 0; i < N; ++i)
+        free(graph[i]);
+    free(graph);
+    free(chunkSizes);
+    free(displ);
+
+    return 0;
 }
