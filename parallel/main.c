@@ -14,111 +14,63 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <limits.h>
-#include <stdbool.h>
 #include <string.h>
 #include <mpi.h>
-#define MASTER 0        // Master node number
- 
-int N;
 
-// Find the vertex with minimum key value, 
-// from the set of vertices not yet included in MST
-int minKey(int* key, bool* mstSet)
-{
-    // Initialize min value
-    int min = INT_MAX, min_index;
-    for (int v = 0; v < N; v++) {
-        if (mstSet[v] == false && key[v] < min)
-            min = key[v], min_index = v;
-    }
+#define MASTER 0            // Master node number
+int N;                      // number of vertices
 
-    return min_index;
-}
- 
 
-// Print constructed MST stored in parent[]
-int printMST(int* parent, int** graph)
-{
-    printf("Edge \tWeight\n");
-    for (int i = 1; i < N; i++)
-        printf("%d - %d \t%d \n", i+1, parent[i]+1, graph[i][parent[i]]);
-}
- 
 
-// Construct and print MST for a graph represented 
-// using adjacency matrix representation
-void primMST(int** graph)
-{
-    int* parent = calloc(N, sizeof(int));        // Array to store constructed MST
-    int* key = calloc(N-1, sizeof(int));         // Key values used to pick minimum weight edge in cut
-    bool* mstSet = calloc(N, sizeof(bool));      // To represent set of vertices included in MST
- 
-    // Initialize all keys as INFINITE
-    for (int i = 0; i < N; i++)
-        key[i] = INT_MAX, mstSet[i] = false;
- 
-    // Include first 1st vertex in MST.
-    // Make key 0 so that this vertex is picked as first vertex.
-    key[0] = 0;
-    parent[0] = -1; // First node is always root of MST
- 
-
-    for (int count = 0; count < N - 1; count++) {
-
-        // Pick the minimum key vertex from the set of vertices not yet included in MST
-        int u = minKey(key, mstSet);
- 
-        // Add the picked vertex to the MST Set
-        mstSet[u] = true;
- 
-        // Update key value and parent index of the adjacent vertices of the picked vertex.
-        // Consider only those vertices which are not yet included in MST
-        for (int v = 0; v < N; v++)
- 
-            // graph[u][v] is non zero only for adjacent vertices of m
-            // mstSet[v] is false for vertices not yet included in MST
-            // Update the key only if graph[u][v] is smaller than key[v]
-            if (graph[u][v] && mstSet[v] == false && graph[u][v] < key[v])
-                parent[v] = u, key[v] = graph[u][v];
-    }
-
-    printMST(parent, graph);
-}
-
-////////////////////////////////////////////////////////////////////////////////////////////////////
- 
 int main(int argc, char *argv[])
 {
-    FILE* file = fopen(argv[1], "r");
     char* fileName = argv[1];
-    int** graph;        // adjency matrix of graph
+    FILE* file = fopen(fileName, "r");
+    int** graph;            // adjency matrix of graph
     int i, j, v;
 
-    int rank;           // rank of current processor
-    int procNum;        // number of processors
-    int* chunkSizes;    // specifying the number of elements to send to each processor 
-    int* displ;         // specifies the displacement (starting index) needed in MPI_Scatterv
-    int* chunk;         // chunk of matrix (columns) that belongs to each processor
+    int rank;               // rank of current processor
+    int procNum;            // number of processors
+    int* chunkSize;         // specifying the number of elements to send to each processor     // chunkSize
+                            // liczba kolumn
+    int* displ;             // specifies the displacement (starting index) needed in MPI_Scatterv
+    int* chunk;             // chunk of matrix (columns) that belongs to each processor
+                            // wektor elementów należących do danego procesu (rozplaszczona macierz kolumn które ma przetworzyc dany proces)
+    int* MST;               // minimum spanning tree with selected edges: MST[v1] = v2
 
-    MPI_Comm world world = MPI_COMM_WORLD;
+    // struct contains tuple of minimal weight and rank for row
+    struct { 
+        int minWeight; 
+        int rank; 
+    } localRow, globalRow;
 
+    // struct contains tuple of vertices
+    struct { 
+        int v1; 
+        int v2; 
+    } edge;                   
+
+    int minWeight, v1, v2;    // for fiding localRow.minWeight
+    
+
+
+    MPI_Comm world = MPI_COMM_WORLD;
     MPI_Init(&argc, &argv);
     MPI_Comm_rank(world, &rank);
     MPI_Comm_size(world, &procNum);
     
-    chunkSizes = (int*)malloc(sizeof(int) * procNum);
+    chunkSize = (int*)malloc(sizeof(int) * procNum);
     displs = (int*)malloc(sizeof(int) * procNum);
 
-    chunkSize = N / procNum;                // chunk size for each processor
     int remains = procNum - (N % procNum);  // if number of vertices is not a multiply of number of processors
-    chunkSizes[0] = chunkSize;
+    chunkSize[0] = N / procNum;
     displs[0] = 0;
 
     for (i = 1; i < procNum; i++) {
-        chunkSizes[i] = chunkSize;
+        chunkSize[i] = N / procNum;
         if (i < remains) 
-            ++chunkSizes[i];
-        displs[i] = displs[i-1] + chunkSizes[i-1];
+            ++chunkSize[i];
+        displs[i] = displs[i-1] + chunkSize[i-1];
     }
 
 
@@ -145,7 +97,7 @@ int main(int argc, char *argv[])
         free(bashCommand);
 
         graph = calloc(N, sizeof(int *));
-        for(i=0; i< N; i++)    
+        for(i=0; i < N; i++)    
             graph[i] = calloc(N, sizeof(int));
 
 
@@ -159,16 +111,86 @@ int main(int argc, char *argv[])
     } // end of master node tasks
 
 
-    // constructed MST and print results
-    primMST(graph);
+    chunk = (int*)malloc(chunkSize[rank]*N*sizeof(int)); // each processor needs its own chunk of data
+
+    MPI_Datatype vectorType; 
+    MPI_Type_contiguous(N, MPI_INT, &vectorType);
+    MPI_Type_commit(&vectorType);
+
+    // here the chunk each processor needs will be scatter to it
+    MPI_Scatterv(matrix, chunkSize, displs, vectorType, chunk, chunkSize[rank], vectorType, 0, world);
+ 
+
+    MST = (int*)malloc(N*sizeof(int)); // max size is number of vertices
+
+    MST[0] = 0;
+    minWeight = 0;
+    v1 = v2 = 0;
+
+
+    // iterates over vertices
+    for (k = 0; k < N-1; ++k) 
+    {
+        minWeight = INT_MAX;
+        
+        // iterates over vertices in chunk
+        for (i = 0; i < chunkSize[rank]; ++i)
+        {
+            // check if beginning of edge has not been visited
+            if (MST[i + displs[rank]] != -1) 
+            {
+                // iterates over vertices (end of our edge which we are looking for by minimal weight)
+                for (j = 0; j < N; ++j)
+                {
+                    // check if end of edge has not been visited
+                    if (MST[j] == -1) 
+                    {
+                        // if the chunk[N*i+j] is less than minWeight value
+                        if (chunk[N*i+j] < minWeight && chunk[N*i+j] != 0)
+                        {
+                            minWeight = chunk[N*i+j];   // current minimal weight
+                            v1 = i;                     // beginning of current edge with minimal weight
+                            v2 = j;                     // end of current edge with minimal weight
+                        }
+                    }
+                } // end of loop over j
+            }
+        } // end of loop over vertices in chunk
+
+        localRow.minWeight = minWeight;
+        localRow.rank = rank;
+        
+        // each process have to send its min weight row to others processes
+        MPI_Allreduce(&localRow, &globalRow, 1, MPI_2INT, MPI_MINLOC, world); 
+        edge.v1 = v1 + displs[rank];
+        edge.v2 = v2;
+
+        // broadcasts informations from the rank process to all other processes of the communicator
+        MPI_Bcast(&edge, 1, MPI_2INT, globalRow.rank, world);
+
+        MST[edge.v2] = edge.v1;
+        minWeight += globalRow.minWeight;
+    } // end of loop over vertices
+
+
+    if (rank == MASTER) {
+        printf("MST weight: %d\n", minWeight);
+        // dodać czas działania
+        // zapisanie macierzy sąsiedztwa MST do pliku
+        // printowanie krawędzi ?
     }
+
 
     // dealocating memory
     for(i = 0; i < N; ++i)
         free(graph[i]);
     free(graph);
-    free(chunkSizes);
+    free(chunkSize);
     free(displ);
+    free(chunk);
+    free(MST);
+
+    MPI_Finalize();
 
     return 0;
 }
