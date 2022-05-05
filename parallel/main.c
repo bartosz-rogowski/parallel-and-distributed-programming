@@ -29,6 +29,7 @@ int main(int argc, char *argv[])
     char* fileName = argv[1];
     FILE* file = fopen(fileName, "r");
     int** graph;            // adjency matrix of graph
+    int* flatten_graph;      // graph converted to vector
     int i, j, v, k;
 
     int rank;               // rank of current processor
@@ -97,7 +98,10 @@ int main(int argc, char *argv[])
             fclose(file);
 
             if (procNum > N) {
-                procNum = N;
+                // procNum = N;
+                // printf("ZA DUZO DEBILU");
+                // MPI_Finalize();
+                // return 0;
                 printf("[INFO] Proc number > graph size.. reducing to %d\n", procNum);
             }
 
@@ -108,123 +112,127 @@ int main(int argc, char *argv[])
     MPI_Bcast(&N, 1, MPI_INT, MASTER, world);
     MPI_Bcast(&procNum, 1, MPI_INT, MASTER, world);
     
-    if(rank != MASTER)
-    {
-        graph = calloc(N, sizeof(int*));
-        for(i=0; i < N; i++)    
-            graph[i] = calloc(N, sizeof(int));
-    }
-
-    for (i = 0; i < N; i++) 
-        MPI_Bcast((int **)&(graph[i][0]), N, MPI_INT, MASTER, MPI_COMM_WORLD);
-    
-
-    
-    chunkSize = calloc(procNum, sizeof(int));
-    displs = calloc(procNum, sizeof(int));
-
-    int remains = (N % procNum);  // if number of vertices is not a multiply of number of processors
-    displs[0] = 0;
-    
-    for (i = 0; i < procNum; i++) {
-        chunkSize[i] = N / procNum;
-        if (i < remains) 
-            ++chunkSize[i];
-    }
-
-
-    for (i = 1; i < procNum; i++) {
-        displs[i] = displs[i-1] + chunkSize[i-1];
-    }
-    
-    chunk = calloc(chunkSize[rank]*N, sizeof(int));     // each processor needs its own chunk of data
-    
-
-    for (i = 0; i < procNum; ++i) {
-        chunkSize[i] *= N;
-        displs[i] *= N;
-    }
-
-
-    int* flatten_graph = calloc(N*N, sizeof(int));
-    
-    for (i = 0; i < N; i++) {
-        for (j = 0; j < N; j++) {
-            flatten_graph[N*i+j] = graph[i][j];
-        }
-    }
-
-    // here the chunk each processor needs will be scatter to it
-    MPI_Scatterv(&(flatten_graph[0]), chunkSize, displs, MPI_INT, chunk, chunkSize[rank], MPI_INT, MASTER, world);
-
-
-    for (i = 0; i < procNum; ++i)
-        chunkSize[i] /= N;
-
-    MST = calloc(N, sizeof(int));   // max size is number of vertices
-
-    MST[0] = 0;
-    for (i = 1; i < N; ++i)
-    {
-        MST[i] = -1;
-    }
-
-    globalMinWeight = 0;
-    v1 = v2 = 0;
-
-    
-    // iterates over vertices
-    for (k = 0; k < N-1; ++k) 
-    {
-        minWeight = INT_MAX;
-        
-        // iterates over vertices in chunk
-        for (i = 0; i < chunkSize[rank]; ++i)
+    if (rank < procNum) {
+        if(rank != MASTER)
         {
-            // check if beginning of edge has not been visited
-            if (MST[i + displs[rank]] != -1) 
-            {
-                // iterates over vertices (end of our edge which we are looking for by minimal weight)
-                for (j = 0; j < N; ++j)
-                {
-                    // check if end of edge has not been visited
-                    if (MST[j] == -1) 
-                    {
-                        // if the chunk[N*i+j] is less than minWeight value
-                        if (chunk[N*i+j] < minWeight && chunk[N*i+j] != 0)
-                        {
-                            minWeight = chunk[N*i+j];   // current minimal weight
-                            v1 = i;                     // beginning of current edge with minimal weight
-                            v2 = j;                     // end of current edge with minimal weight
-                        }
-                    }
-                } // end of loop over j
-            }
-        } // end of loop over vertices in chunk
+            graph = calloc(N, sizeof(int*));
+            for(i=0; i < N; i++)    
+                graph[i] = calloc(N, sizeof(int));
+        }
 
-        localRow.minWeight = minWeight;
-        localRow.rank = rank;
+        for (i = 0; i < N; i++) 
+            MPI_Bcast((int **)&(graph[i][0]), N, MPI_INT, MASTER, MPI_COMM_WORLD);
         
-        // each process have to send its min weight row to others processes
-        MPI_Allreduce(&localRow, &globalRow, 1, MPI_2INT, MPI_MINLOC, world); 
-        edge.v1 = v1 + displs[rank];
-        edge.v2 = v2;
 
-        // broadcasts informations from the rank process to all other processes of the communicator
-        MPI_Bcast(&edge, 1, MPI_2INT, globalRow.rank, world);
+        
+        chunkSize = calloc(procNum, sizeof(int));
+        displs = calloc(procNum, sizeof(int));
 
-        MST[edge.v2] = edge.v1;
-        globalMinWeight += globalRow.minWeight;
-    } // end of loop over vertices
+        int remains = (N % procNum);  // if number of vertices is not a multiply of number of processors
+        displs[0] = 0;
+        
+        for (i = 0; i < procNum; i++) {
+            chunkSize[i] = N / procNum;
+            if (i < remains) 
+                ++chunkSize[i];
+        }
 
-    MPI_Barrier(world);
 
-    if (rank == MASTER) {
-        printf("---------------------------------\n");;
-        printf("MST weight: %d\n", globalMinWeight);
-        // dodać czas działania
-        // zapisanie macierzy sąsiedztwa MST do pliku
-        // printowanie krawędzi ?
+        for (i = 1; i < procNum; i++) {
+            displs[i] = displs[i-1] + chunkSize[i-1];
+        }
+        
+        chunk = calloc(chunkSize[rank]*N, sizeof(int));     // each processor needs its own chunk of data
+        
+
+        for (i = 0; i < procNum; ++i) {
+            chunkSize[i] *= N;
+            displs[i] *= N;
+        }
+
+
+        flatten_graph = calloc(N*N, sizeof(int));
+        
+        for (i = 0; i < N; i++) {
+            for (j = 0; j < N; j++) {
+                flatten_graph[N*i+j] = graph[i][j];
+            }
+        }
+
+        // here the chunk each processor needs will be scatter to it
+        MPI_Scatterv(&(flatten_graph[0]), chunkSize, displs, MPI_INT, chunk, chunkSize[rank], MPI_INT, MASTER, world);
+
+
+
+        for (i = 0; i < procNum; ++i)
+            chunkSize[i] /= N;
+
+        MST = calloc(N, sizeof(int));   // max size is number of vertices
+
+        MST[0] = 0;
+        for (i = 1; i < N; ++i)
+        {
+            MST[i] = -1;
+        }
+
+        globalMinWeight = 0;
+        v1 = v2 = 0;
+
+        
+        // iterates over vertices
+        for (k = 0; k < N-1; ++k) 
+        {
+            minWeight = INT_MAX;
+            
+            // iterates over vertices in chunk
+            for (i = 0; i < chunkSize[rank]; ++i)
+            {
+                // check if beginning of edge has not been visited
+                if (MST[i + displs[rank]] != -1) 
+                {
+                    // iterates over vertices (end of our edge which we are looking for by minimal weight)
+                    for (j = 0; j < N; ++j)
+                    {
+                        // check if end of edge has not been visited
+                        if (MST[j] == -1) 
+                        {
+                            // if the chunk[N*i+j] is less than minWeight value
+                            if (chunk[N*i+j] < minWeight && chunk[N*i+j] != 0)
+                            {
+                                minWeight = chunk[N*i+j];   // current minimal weight
+                                v1 = i;                     // beginning of current edge with minimal weight
+                                v2 = j;                     // end of current edge with minimal weight
+                            }
+                        }
+                    } // end of loop over j
+                }
+            } // end of loop over vertices in chunk
+
+            localRow.minWeight = minWeight;
+            localRow.rank = rank;
+            
+            // each process have to send its min weight row to others processes
+            MPI_Allreduce(&localRow, &globalRow, 1, MPI_2INT, MPI_MINLOC, world); 
+            edge.v1 = v1 + displs[rank];
+            edge.v2 = v2;
+
+            // broadcasts informations from the rank process to all other processes of the communicator
+            MPI_Bcast(&edge, 1, MPI_2INT, globalRow.rank, world);
+
+            MST[edge.v2] = edge.v1;
+            globalMinWeight += globalRow.minWeight;
+        } // end of loop over vertices
+
+        MPI_Barrier(world);
+
+        if (rank == MASTER) {
+            printf("---------------------------------\n");;
+            printf("MST weight: %d\n", globalMinWeight);
+            // dodać czas działania
+            // zapisanie macierzy sąsiedztwa MST do pliku
+            // printowanie krawędzi ?
+        }
+
     }
 
 
