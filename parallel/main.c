@@ -28,8 +28,10 @@ int main(int argc, char *argv[])
 {
     char* fileName = argv[1];
     FILE* file = fopen(fileName, "r");
+    char* fileNameForResults = argv[2];
+    FILE* resFile;
     int** graph;            // adjency matrix of graph
-    int* flatten_graph;      // graph converted to vector
+    int* flatten_graph;     // graph converted to vector
     int i, j, v, k;
 
     int rank;               // rank of current processor
@@ -39,19 +41,16 @@ int main(int argc, char *argv[])
     int* displs;            // specifies the displacement (starting index) needed in MPI_Scatterv
     int* chunk;             // chunk of matrix (columns) that belongs to each processor
                             // wektor elementów należących do danego procesu (rozplaszczona macierz kolumn które ma przetworzyc dany proces)
-    int* MST;               // minimum spanning tree with selected edges: MST[v1] = v2
+    int* mstEdges;          // minimum spanning tree by edges: mstEdges[v1] = v2
+    int** MST;              // adjency matrix of minimum spanning tree (MST) found in input graph
+
 
     // struct contains tuple of minimal weight and rank for row
     struct { 
         int minWeight; 
         int rank; 
     } localRow, globalRow;
-
-    // struct contains tuple of vertices
-    struct { 
-        int v1; 
-        int v2; 
-    } edge;                   
+                  
 
     int globalMinWeight, minWeight, min, v1, v2; 
 
@@ -98,11 +97,7 @@ int main(int argc, char *argv[])
             fclose(file);
 
             if (procNum > N) {
-                // procNum = N;
-                // printf("ZA DUZO DEBILU");
-                // MPI_Finalize();
-                // return 0;
-                printf("[INFO] Proc number > graph size.. reducing to %d\n", procNum);
+                printf("[INFO] Proc number > graph size.. reducing... will be computed only by %d procceses.\n", N);
             }
 
         } // end of else
@@ -111,6 +106,10 @@ int main(int argc, char *argv[])
 
     MPI_Bcast(&N, 1, MPI_INT, MASTER, world);
     MPI_Bcast(&procNum, 1, MPI_INT, MASTER, world);
+
+    MST = calloc(N, sizeof(int*));
+        for(i=0; i < N; i++)    
+            MST[i] = calloc(N, sizeof(int));
     
     if (rank < procNum) {
         if(rank != MASTER)
@@ -167,12 +166,13 @@ int main(int argc, char *argv[])
         for (i = 0; i < procNum; ++i)
             chunkSize[i] /= N;
 
-        MST = calloc(N, sizeof(int));   // max size is number of vertices
+        mstEdges = calloc(N, sizeof(int));   // max size is number of vertices
 
-        MST[0] = 0;
+        
+        mstEdges[0] = 0;
         for (i = 1; i < N; ++i)
         {
-            MST[i] = -1;
+            mstEdges[i] = -1;
         }
 
         globalMinWeight = 0;
@@ -188,13 +188,13 @@ int main(int argc, char *argv[])
             for (i = 0; i < chunkSize[rank]; ++i)
             {
                 // check if beginning of edge has not been visited
-                if (MST[i + displs[rank]] != -1) 
+                if (mstEdges[i + displs[rank]] != -1) 
                 {
                     // iterates over vertices (end of our edge which we are looking for by minimal weight)
                     for (j = 0; j < N; ++j)
                     {
                         // check if end of edge has not been visited
-                        if (MST[j] == -1) 
+                        if (mstEdges[j] == -1) 
                         {
                             // if the chunk[N*i+j] is less than minWeight value
                             if (chunk[N*i+j] < minWeight && chunk[N*i+j] != 0)
@@ -213,38 +213,74 @@ int main(int argc, char *argv[])
             
             // each process have to send its min weight row to others processes
             MPI_Allreduce(&localRow, &globalRow, 1, MPI_2INT, MPI_MINLOC, world); 
-            edge.v1 = v1 + displs[rank];
-            edge.v2 = v2;
+            v1 = v1 + (displs[rank]/N);
+            v2 = v2;
 
             // broadcasts informations from the rank process to all other processes of the communicator
-            MPI_Bcast(&edge, 1, MPI_2INT, globalRow.rank, world);
+            MPI_Bcast(&v1, 1, MPI_INT, globalRow.rank, world);
+            MPI_Bcast(&v2, 1, MPI_INT, globalRow.rank, world);
+            
+            mstEdges[v2] = v1;
+            MST[v1][v2] = globalRow.minWeight;
+            MST[v2][v1] = globalRow.minWeight;
 
-            MST[edge.v2] = edge.v1;
+            // printf("%d - %d\n", edge.v1, edge.v2);
             globalMinWeight += globalRow.minWeight;
         } // end of loop over vertices
 
         MPI_Barrier(world);
 
         if (rank == MASTER) {
-            printf("---------------------------------\n");;
-            printf("MST weight: %d\n", globalMinWeight);
+            printf("--------------------------------------------------------------------------------\n");
+            printf("\nMST edges with weights:\n");
+            printf("------------------------\n");
+
+            for (i = 1; i < N; i++) 
+                printf(" %d --- %d  \t%d\n", i, mstEdges[i], MST[i][mstEdges[i]]);
+
+            printf("\n\nMST weight: %d\n", globalMinWeight);
+            printf("--------------------------------------------------------------------------------\n");
+
+            if (fileNameForResults != NULL) {
+                printf("[INFO] Saving results to file...\n");
+                resFile=fopen(fileNameForResults,"w+");
+                if (resFile==NULL)
+                {
+                    printf("Couldn't save results..%s file could not be opened", fileNameForResults);
+                } else {
+                    for (i=0;i<N;i++)
+                    {
+                        for (j=0;j<N;j++)
+                            fprintf(resFile,"%d ", MST[i][j]);
+                        fprintf(resFile,"\n");
+                    }
+                    fclose(resFile);
+                    printf("[INFO] Adjency matrix of found MST saved to file: %s.\n", fileNameForResults);
+                }
+            } else {
+                printf("[INFO] If you want to save MST adjency matrix to file add filename to args.\n");
+            }
+                
+                
             // dodać czas działania
-            // zapisanie macierzy sąsiedztwa MST do pliku
-            // printowanie krawędzi ?
+            
         }
 
     }
 
 
     // dealocating memory
-    for(i = 0; i < N; ++i)
+    for(i = 0; i < N; ++i) {
         free(graph[i]);
+        free(MST[i]);
+    }
     free(graph);
+    free(MST);
     free(flatten_graph);
     free(chunkSize);
     free(displs);
     free(chunk);
-    free(MST);
+    free(mstEdges);
 
     MPI_Finalize();
 
