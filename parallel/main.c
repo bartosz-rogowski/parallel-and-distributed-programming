@@ -7,10 +7,11 @@
  *  Configure:          source /opt/nfs/config/source_mpich32.sh
  *  Compile:            mpicc main.c -o main 
  *  Claster setup:      /opt/nfs/config/station206_name_list.sh 1 16 > nodes
- *  Run:                mpiexec -f nodes -n 16 ./main filename
+ *  Run:                mpiexec -f nodes -n 16 ./main input_filename [results_filename]
  *                          -proc - number of processes
- *                          -filename - name of the file which contains input adjency matrix
- *                      for example date: mpiexec -f nodes -n 5 ./main data01.txt
+ *                          -input_filename - name of the file which contains input adjency matrix
+ *                          -[results_filename] - name of the file for MST adjency matrix results
+ *                      for example date: mpiexec -f nodes -n 5 ./main data01.txt mst.txt
  * ------------------------------------------------------------------------------------
  */
 #include <stdio.h>
@@ -19,8 +20,8 @@
 #include <string.h>
 #include "mpi.h"
 
-#define MASTER 0            // Master node number
-int N;                      // number of vertices
+#define MASTER 0    // master node number
+int N;              // number of vertices
 
 
 
@@ -30,20 +31,18 @@ int main(int argc, char *argv[])
     FILE* file = fopen(fileName, "r");
     char* fileNameForResults = argv[2];
     FILE* resFile;
-    int** graph;            // adjency matrix of graph
-    int* flatten_graph;     // graph converted to vector
+    
     int i, j, v, k;
-
-    int rank;               // rank of current processor
-    int procNum;            // number of processors
-    int* chunkSize;         // specifying the number of elements to send to each processor
-                            // liczba kolumn
-    int* displs;            // specifies the displacement (starting index) needed in MPI_Scatterv
-    int* chunk;             // chunk of matrix (columns) that belongs to each processor
-                            // wektor elementów należących do danego procesu (rozplaszczona macierz kolumn które ma przetworzyc dany proces)
-    int* mstEdges;          // minimum spanning tree by edges: mstEdges[v1] = v2
-    int** MST;              // adjency matrix of minimum spanning tree (MST) found in input graph
-
+    int** graph;                // adjency matrix of graph
+    int* flatten_graph;         // graph converted to vector
+    int rank;                   // rank of current processor
+    int procNum;                // number of processors
+    int* chunkSize;             // specifying the number of elements to send to each processor
+    int* displs;                // specifies the displacement (starting index) needed in MPI_Scatterv
+    int* chunk;                 // chunk of matrix (columns) that belongs to each processor (flatten vector of columns)
+    int* mstEdges;              // minimum spanning tree by edges: mstEdges[v1] = v2
+    int** MST;                  // adjency matrix of minimum spanning tree (MST) found in input graph
+    double startTime, endTime;  // to measure Prim algo compute time for each process
 
     // struct contains tuple of minimal weight and rank for row
     struct { 
@@ -51,14 +50,13 @@ int main(int argc, char *argv[])
         int rank; 
     } localRow, globalRow;
                   
-
     int globalMinWeight, minWeight, min, v1, v2; 
-
 
     MPI_Init(&argc, &argv);
     MPI_Comm world = MPI_COMM_WORLD;
     MPI_Comm_rank(world, &rank);
     MPI_Comm_size(world, &procNum);
+
 
 
     // master processor read adjency matrix data from file to 2D matrix (graph)
@@ -98,20 +96,20 @@ int main(int argc, char *argv[])
 
             if (procNum > N) {
                 printf("[INFO] Proc number > graph size.. reducing... will be computed only by %d procceses.\n", N);
+                printf("--------------------------------------------------------------------------------\n\n");
             }
-
         } // end of else
     } // end of master node tasks
-
 
     MPI_Bcast(&N, 1, MPI_INT, MASTER, world);
     MPI_Bcast(&procNum, 1, MPI_INT, MASTER, world);
 
-    MST = calloc(N, sizeof(int*));
+
+    if (rank < procNum) {
+        MST = calloc(N, sizeof(int*));
         for(i=0; i < N; i++)    
             MST[i] = calloc(N, sizeof(int));
     
-    if (rank < procNum) {
         if(rank != MASTER)
         {
             graph = calloc(N, sizeof(int*));
@@ -120,7 +118,7 @@ int main(int argc, char *argv[])
         }
 
         for (i = 0; i < N; i++) 
-            MPI_Bcast((int **)&(graph[i][0]), N, MPI_INT, MASTER, MPI_COMM_WORLD);
+            MPI_Bcast((int **)&(graph[i][0]), N, MPI_INT, MASTER, world);
         
 
         
@@ -162,9 +160,10 @@ int main(int argc, char *argv[])
         MPI_Scatterv(&(flatten_graph[0]), chunkSize, displs, MPI_INT, chunk, chunkSize[rank], MPI_INT, MASTER, world);
 
 
-
-        for (i = 0; i < procNum; ++i)
+        for (i = 0; i < procNum; ++i){
             chunkSize[i] /= N;
+            displs[i] /= N;
+        }
 
         mstEdges = calloc(N, sizeof(int));   // max size is number of vertices
 
@@ -178,7 +177,8 @@ int main(int argc, char *argv[])
         globalMinWeight = 0;
         v1 = v2 = 0;
 
-        
+        startTime = MPI_Wtime();    // start measuring compute time
+
         // iterates over vertices
         for (k = 0; k < N-1; ++k) 
         {
@@ -213,7 +213,7 @@ int main(int argc, char *argv[])
             
             // each process have to send its min weight row to others processes
             MPI_Allreduce(&localRow, &globalRow, 1, MPI_2INT, MPI_MINLOC, world); 
-            v1 = v1 + (displs[rank]/N);
+            v1 = v1 + displs[rank];
             v2 = v2;
 
             // broadcasts informations from the rank process to all other processes of the communicator
@@ -224,14 +224,17 @@ int main(int argc, char *argv[])
             MST[v1][v2] = globalRow.minWeight;
             MST[v2][v1] = globalRow.minWeight;
 
-            // printf("%d - %d\n", edge.v1, edge.v2);
             globalMinWeight += globalRow.minWeight;
+            
         } // end of loop over vertices
+
+        endTime = MPI_Wtime();
+        if (rank < N)
+            printf("Compute time from %d process: %.2f ms\n", rank, (endTime-startTime)*1000);
 
         MPI_Barrier(world);
 
         if (rank == MASTER) {
-            printf("--------------------------------------------------------------------------------\n");
             printf("\nMST edges with weights:\n");
             printf("------------------------\n");
 
@@ -248,9 +251,9 @@ int main(int argc, char *argv[])
                 {
                     printf("Couldn't save results..%s file could not be opened", fileNameForResults);
                 } else {
-                    for (i=0;i<N;i++)
-                    {
-                        for (j=0;j<N;j++)
+                    for (i = 0; i < N; i++)
+                    {   
+                        for (j = 0; j < N; j++)
                             fprintf(resFile,"%d ", MST[i][j]);
                         fprintf(resFile,"\n");
                     }
@@ -260,14 +263,9 @@ int main(int argc, char *argv[])
             } else {
                 printf("[INFO] If you want to save MST adjency matrix to file add filename to args.\n");
             }
-                
-                
-            // dodać czas działania
-            
         }
-
-    }
-
+  
+    }   
 
     // dealocating memory
     for(i = 0; i < N; ++i) {

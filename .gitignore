@@ -1,2 +1,4 @@
 # Executables
 **/main
+**/*.o
+**/nodes
