@@ -96,8 +96,8 @@ int main(int argc, char *argv[])
 
             if (procNum > N) {
                 printf("[INFO] Proc number > graph size.. reducing... will be computed only by %d procceses.\n", N);
-                printf("--------------------------------------------------------------------------------\n\n");
             }
+            printf("--------------------------------------------------------------------------------\n\n");
         } // end of else
     } // end of master node tasks
 
