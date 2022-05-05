@@ -12,11 +12,11 @@ $(OUT): $(OBJS)
 .c.o:
 	$(CC) -c -o $@ $< $(CFLAGS) 
 
-# prepare:
-# 	@echo  "przygotowywanie środowiska..."
-# 	@source /opt/nfs/config/source_mpich32.sh
-# 	@/opt/nfs/config/station206_name_list.sh 1 16 > nodes
-# 	@echo -e "\033[1;32mliczba dostępnych węzłów: $(grep "" -c nodes)\033[0m"
+prepare:
+	@echo  "przygotowywanie środowiska..."
+	@source /opt/nfs/config/source_mpich32.sh
+	@/opt/nfs/config/station206_name_list.sh 1 16 > nodes
+#	 @echo -e "\033[1;32mliczba dostępnych węzłów: $(grep "" -c nodes)\033[0m"
 	
 .PHONY: clean	
 clean:
@@ -29,6 +29,8 @@ clean:
 mem:
 	valgrind ./$(OUT)
 
+run:
+	mpiexec -f nodes -n $(n) ./$(OUT) $(in) $(out)
 run01:
 	mpiexec -f nodes -n 5 ./$(OUT) example/data01.txt mst_res.txt
 
