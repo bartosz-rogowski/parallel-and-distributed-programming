@@ -80,6 +80,7 @@ int main(int argc, char *argv[])
             if (res)
                 fscanf(res, "%d", (int*)(&N));
 
+            fclose(res);
             free(bashCommand);
 
             graph = calloc(N, sizeof(int*));
@@ -103,7 +104,15 @@ int main(int argc, char *argv[])
         } // end of else
     } // end of master node tasks
 
+    // printf("rank = %d\t procNum = %d \t N = %d\n", rank, procNum, N);
+
+    // if(rank >= procNum - N) {
+    //     printf("rank = %d\t procNum = %d\n", rank, procNum);
+    //     // MPI_Finalize();
+    // }
+
     MPI_Bcast(&N, 1, MPI_INT, MASTER, world);
+    MPI_Bcast(&procNum, 1, MPI_INT, MASTER, world);
     
     if(rank != MASTER)
     {
@@ -112,7 +121,6 @@ int main(int argc, char *argv[])
             graph[i] = calloc(N, sizeof(int));
     }
 
-    MPI_Bcast(&procNum, 1, MPI_INT, MASTER, world);
     for (i = 0; i < N; i++) 
         MPI_Bcast((int **)&(graph[i][0]), N, MPI_INT, MASTER, MPI_COMM_WORLD);
     
@@ -138,36 +146,34 @@ int main(int argc, char *argv[])
     chunk = calloc(chunkSize[rank]*N, sizeof(int));     // each processor needs its own chunk of data
     
 
-    // for (i = 0; i < procNum; ++i) {
-    //     chunkSize[i] *= N;
-    //     displs[i] *= N;
-    // }
+    for (i = 0; i < procNum; ++i) {
+        chunkSize[i] *= N;
+        displs[i] *= N;
+    }
 
-    // MPI_Datatype vectorType; 
-    // MPI_Type_contiguous(N, MPI_INT, &vectorType);
-    // MPI_Type_commit(&vectorType);
 
+    int* flatten_graph = calloc(N*N, sizeof(int));
+    
+    for (i = 0; i < N; i++) {
+        for (j = 0; j < N; j++) {
+            flatten_graph[N*i+j] = graph[i][j];
+        }
+    }
 
     // here the chunk each processor needs will be scatter to it
-    // MPI_Scatterv(&(graph[0][0]), chunkSize, displs, MPI_INT, chunk, chunkSize[rank], MPI_INT, MASTER, world);
-
-    for (i = 0; i < N; ++i) {
-        chunk[i] = graph[rank][i];
-    }
-    
-
-    // for (i = 0; i < procNum; ++i)
-    //     chunkSize[i] /= N;
+    MPI_Scatterv(&(flatten_graph[0]), chunkSize, displs, MPI_INT, chunk, chunkSize[rank], MPI_INT, MASTER, world);
 
  
-    if (rank == 0) {
-        printf("rank %d \t chunk = [", rank);
-        for (i = 0; i < chunkSize[rank]*N; ++i)
-            printf("%d, ", chunk[i]);
-        printf("]\n");
-        printf("-------------------\n");
-    }
+    // if (rank == 4) {
+    //     printf("rank %d \t chunk = [", rank);
+    //     for (i = 0; i < chunkSize[rank]; ++i)
+    //         printf("%d, ", chunk[i]);
+    //     printf("]\n");
+    //     printf("-------------------\n");
+    // }
 
+    for (i = 0; i < procNum; ++i)
+        chunkSize[i] /= N;
 
     MST = calloc(N, sizeof(int));   // max size is number of vertices
 
@@ -231,6 +237,7 @@ int main(int argc, char *argv[])
     MPI_Barrier(world);
 
     if (rank == MASTER) {
+        printf("---------------------------------\n");;
         printf("MST weight: %d\n", globalMinWeight);
         // dodać czas działania
         // zapisanie macierzy sąsiedztwa MST do pliku
@@ -239,13 +246,14 @@ int main(int argc, char *argv[])
 
 
     // dealocating memory
-    // for(i = 0; i < N; ++i)
-    //     free(graph[i]);
-    // free(graph);
-    // free(chunkSize);
-    // free(displs);
-    // free(chunk);
-    // free(MST);
+    for(i = 0; i < N; ++i)
+        free(graph[i]);
+    free(graph);
+    free(flatten_graph);
+    free(chunkSize);
+    free(displs);
+    free(chunk);
+    free(MST);
 
     MPI_Finalize();
 
