@@ -5,17 +5,18 @@ OBJS=main.o
 OUT=main
 SHELL := /bin/bash
 
+
 $(OUT): $(OBJS)
 	$(CC)  -o $@  $^ $(CFLAGS)
 	
 .c.o:
 	$(CC) -c -o $@ $< $(CFLAGS) 
 
-prepare:
-	@echo  "przygotowywanie środowiska..."
-	@source /opt/nfs/config/source_mpich32.sh
-	@/opt/nfs/config/station206_name_list.sh 1 16 > nodes
-	@echo -e "\033[1;32mliczba dostępnych węzłów: $(grep "" -c nodes)\033[0m"
+# prepare:
+# 	@echo  "przygotowywanie środowiska..."
+# 	@source /opt/nfs/config/source_mpich32.sh
+# 	@/opt/nfs/config/station206_name_list.sh 1 16 > nodes
+# 	@echo -e "\033[1;32mliczba dostępnych węzłów: $(grep "" -c nodes)\033[0m"
 	
 .PHONY: clean	
 clean:
@@ -34,6 +35,11 @@ run01:
 run02:
 	mpiexec -f nodes -n 10 ./$(OUT) example/data02.txt mst_res.txt
 
+run03:
+	mpiexec -f nodes -n 10 ./$(OUT) example/data03.txt mst_res.txt
+
+run04:
+	mpiexec -f nodes -n 10 ./$(OUT) example/data04.txt mst_res.txt
 
 help:
 	@echo -e "\033[1;33m============= makefile help =============\033[0m"
