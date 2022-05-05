@@ -10,7 +10,7 @@
  *  Run:                mpiexec -f nodes -n 16 ./main filename
  *                          -proc - number of processes
  *                          -filename - name of the file which contains input adjency matrix
- *                      for example date: mpiexec -f nodes -n 16 ./main data01.txt
+ *                      for example date: mpiexec -f nodes -n 5 ./main data01.txt
  * ------------------------------------------------------------------------------------
  */
 #include <stdio.h>
@@ -104,12 +104,6 @@ int main(int argc, char *argv[])
         } // end of else
     } // end of master node tasks
 
-    // printf("rank = %d\t procNum = %d \t N = %d\n", rank, procNum, N);
-
-    // if(rank >= procNum - N) {
-    //     printf("rank = %d\t procNum = %d\n", rank, procNum);
-    //     // MPI_Finalize();
-    // }
 
     MPI_Bcast(&N, 1, MPI_INT, MASTER, world);
     MPI_Bcast(&procNum, 1, MPI_INT, MASTER, world);
@@ -163,14 +157,6 @@ int main(int argc, char *argv[])
     // here the chunk each processor needs will be scatter to it
     MPI_Scatterv(&(flatten_graph[0]), chunkSize, displs, MPI_INT, chunk, chunkSize[rank], MPI_INT, MASTER, world);
 
- 
-    // if (rank == 4) {
-    //     printf("rank %d \t chunk = [", rank);
-    //     for (i = 0; i < chunkSize[rank]; ++i)
-    //         printf("%d, ", chunk[i]);
-    //     printf("]\n");
-    //     printf("-------------------\n");
-    // }
 
     for (i = 0; i < procNum; ++i)
         chunkSize[i] /= N;
@@ -218,9 +204,6 @@ int main(int argc, char *argv[])
 
         localRow.minWeight = minWeight;
         localRow.rank = rank;
-
-        // printf("[DEBUG] rank=%d\t minWeight=%d\t v1=%d\t v2=%d\n", 
-            // rank, minWeight, v1, v2);
         
         // each process have to send its min weight row to others processes
         MPI_Allreduce(&localRow, &globalRow, 1, MPI_2INT, MPI_MINLOC, world); 
