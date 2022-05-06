@@ -229,8 +229,6 @@ int main(int argc, char *argv[])
         } // end of loop over vertices
 
         endTime = MPI_Wtime();
-        if (rank < N)
-            printf("Compute time from %d process: %.2f ms\n", rank, (endTime-startTime)*1000);
 
         MPI_Barrier(world);
 
@@ -243,6 +241,7 @@ int main(int argc, char *argv[])
 
             printf("\n\nMST weight: %d\n", globalMinWeight);
             printf("--------------------------------------------------------------------------------\n");
+            printf("[info] Computation time: %.2f ms.\n", (endTime-startTime)*1000);
 
             if (fileNameForResults != NULL) {
                 printf("[INFO] Saving results to file...\n");
