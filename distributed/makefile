@@ -14,9 +14,8 @@ compile:
 
 prepare:
 	@echo  "przygotowywanie środowiska..."
-	@source /opt/nfs/config/source_upcxx_2021.3.sh 
+	@source /opt/nfs/config/source_upcxx_2022.3.sh 
 	@/opt/nfs/config/station206_name_list.sh 1 16 > nodes
-#	 @echo -e "\033[1;32mliczba dostępnych węzłów: $(grep "" -c nodes)\033[0m"
 	
 .PHONY: clean	
 clean:
@@ -30,19 +29,19 @@ mem:
 	valgrind ./$(OUT)
 
 run:
-	upcxx-run -shared-heap 256M -n 4 $(upcxx-nodes nodes) ./$(OUT) $(in) $(out)
+	upcxx-run -shared-heap 256M -n 4 $$(upcxx-nodes nodes) ./$(OUT) $(in) $(out)
 
 run01:
-	upcxx-run -shared-heap 256M -n 5 $(upcxx-nodes nodes) ./$(OUT) example/data01.txt mst_res.txt
+	upcxx-run -shared-heap 256M -n 4 $$(upcxx-nodes nodes) $(OUT) ./example/data01.txt mst_res.txt
 
 run02:
-	upcxx-run -shared-heap 256M -n 10 $(upcxx-nodes nodes) ./$(OUT) example/data02.txt mst_res.txt
+	upcxx-run -shared-heap 256M -n 1 $$(upcxx-nodes nodes) ./$(OUT) ./example/data02.txt mst_res.txt
 
 run03:
-	upcxx-run -shared-heap 256M -n 10 $(upcxx-nodes nodes) ./$(OUT) example/data03.txt mst_res.txt
+	upcxx-run -shared-heap 256M -n 1 $$(upcxx-nodes nodes) ./$(OUT) ./example/data03.txt mst_res.txt
 
 run04:
-	upcxx-run -shared-heap 256M -n 10 $(upcxx-nodes nodes) ./$(OUT) example/data04.txt mst_res.txt
+	upcxx-run -shared-heap 256M -n 1 $$(upcxx-nodes nodes) ./$(OUT) ./example/data04.txt mst_res.txt
 
 help:
 	@echo -e "\033[1;33m============= makefile help =============\033[0m"
